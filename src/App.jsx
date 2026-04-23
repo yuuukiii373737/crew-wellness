@@ -1,4 +1,5 @@
-import { useState, createContext, useContext } from "react";
+import { useState, createContext, useContext, useEffect } from "react";
+import { fetchClients, fetchRecipes, fetchBlogs, fetchGuidance, addClient, upsertGuidance, deleteGuidance, upsertRecipe, deleteRecipe, upsertBlog, deleteBlog } from "./supabase";
 
 // ═══════════════════════════════════════════════════════
 // SHARED DATA STORE (simulates a backend database)
@@ -125,13 +126,61 @@ function routeColor(code) {
 // ═══════════════════════════════════════════════════════
 export default function App() {
   const today = new Date();
-  const [clients, setClients] = useState(INITIAL_CLIENTS);
-  const [guidance, setGuidance] = useState({});   // { clientId: { "y-m-d": {...} } }
+  const [clients, setClients] = useState([]);
+  const [guidance, setGuidance] = useState({});
   const [recipes, setRecipes] = useState(INITIAL_RECIPES);
   const [blogs, setBlogs] = useState(INITIAL_BLOGS);
-  const [user, setUser] = useState(null); // null | { role:"admin" } | { role:"client", client }
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const store = { today, clients, setClients, guidance, setGuidance, recipes, setRecipes, blogs, setBlogs, user, setUser };
+  // Load data from Supabase on mount
+  useEffect(() => {
+    async function loadAll() {
+      try {
+        const [cls, recs, bls] = await Promise.all([fetchClients(), fetchRecipes(), fetchBlogs()]);
+        if (cls.length > 0) setClients(cls);
+        else setClients(INITIAL_CLIENTS);
+        if (recs.length > 0) setRecipes(recs.map(r => ({ ...r, desc: r.description || r.desc || "" })));
+        if (bls.length > 0) setBlogs(bls);
+      } catch(e) { console.error(e); setClients(INITIAL_CLIENTS); }
+      setLoading(false);
+    }
+    loadAll();
+  }, []);
+
+  // Load guidance when client logs in
+  useEffect(() => {
+    if (!user || user.role !== "client") return;
+    fetchGuidance(user.client.id).then(rows => {
+      const map = {};
+      rows.forEach(r => { map[r.date_key] = r; });
+      setGuidance(g => ({ ...g, [user.client.id]: map }));
+    });
+  }, [user]);
+
+  if (loading) return (
+    <div style={{ fontFamily:"'Helvetica Neue',Arial,sans-serif", background:"#0F172A", minHeight:"100vh", color:"#F1F5F9", maxWidth:430, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:16 }}>
+      <div style={{ fontSize:48 }}>🌿</div>
+      <div style={{ fontSize:16, color:"#64748B" }}>読み込み中...</div>
+    </div>
+  );
+
+  const store = { today, clients, setClients, guidance, setGuidance, recipes, setRecipes, blogs, setBlogs, user, setUser,
+    // Supabase actions
+    sbAddClient: async (c) => { const r = await addClient(c); if(r) setClients(prev => [...prev, r]); return r; },
+    sbSaveGuidance: async (clientId, dateKey, fields) => {
+      await upsertGuidance(clientId, dateKey, fields);
+      setGuidance(g => ({ ...g, [clientId]: { ...(g[clientId]||{}), [dateKey]: { ...fields, client_id: clientId, date_key: dateKey } } }));
+    },
+    sbDeleteGuidance: async (clientId, dateKey) => {
+      await deleteGuidance(clientId, dateKey);
+      setGuidance(g => { const c={...g,[clientId]:{...(g[clientId]||{})}}; delete c[clientId][dateKey]; return c; });
+    },
+    sbSaveRecipe: async (recipe) => { const r = await upsertRecipe(recipe); if(r) { setRecipes(prev => prev.some(x=>x.id===r.id) ? prev.map(x=>x.id===r.id?{...r,desc:r.description||""}:x) : [...prev,{...r,desc:r.description||""}]); } return r; },
+    sbDeleteRecipe: async (id) => { await deleteRecipe(id); setRecipes(prev=>prev.filter(r=>r.id!==id)); },
+    sbSaveBlog: async (blog) => { const r = await upsertBlog(blog); if(r) { setBlogs(prev => prev.some(x=>x.id===r.id) ? prev.map(x=>x.id===r.id?{...r,readMin:r.read_min,sections:[{type:"text",text:r.body||""}]}:x) : [{...r,readMin:r.read_min,sections:[{type:"text",text:r.body||""}]},...prev]); } return r; },
+    sbDeleteBlog: async (id) => { await deleteBlog(id); setBlogs(prev=>prev.filter(b=>b.id!==id)); },
+  };
 
   return (
     <StoreContext.Provider value={store}>
@@ -252,8 +301,8 @@ function AdminApp() {
 
 // ── Admin: Clients & Guidance ─────────────────────────
 function AdminClients() {
-  const { today, clients, setClients, guidance, setGuidance, recipes } = useContext(StoreContext);
-  const [screen, setScreen] = useState("list"); // list | calendar | edit
+  const { today, clients, guidance, recipes, sbAddClient, sbSaveGuidance, sbDeleteGuidance } = useContext(StoreContext);
+  const [screen, setScreen] = useState("list");
   const [sel, setSel] = useState(null);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -261,6 +310,7 @@ function AdminClients() {
   const [editData, setEditData] = useState({});
   const [showAdd, setShowAdd] = useState(false);
   const [newC, setNewC] = useState({ name:"", airline:"", pass:"" });
+  const [saving, setSaving] = useState(false);
 
   const dk = d => `${year}-${month}-${d}`;
   const cG = sel ? (guidance[sel.id] || {}) : {};
@@ -270,18 +320,21 @@ function AdminClients() {
     setEditData({ roster:"", sleep:"", meal:"", meal2:"", supplement:"", notes:"", ...(cG[dk(d)] || {}) });
     setScreen("edit");
   };
-  const save = () => {
-    setGuidance(g => ({ ...g, [sel.id]: { ...(g[sel.id]||{}), [dk(selDay)]: { ...editData } } }));
+  const save = async () => {
+    setSaving(true);
+    await sbSaveGuidance(sel.id, dk(selDay), { roster:editData.roster, sleep:editData.sleep, meal:editData.meal, meal2:editData.meal2, supplement:editData.supplement, notes:editData.notes });
+    setSaving(false);
     setScreen("calendar");
   };
-  const del = d => {
-    setGuidance(g => { const c={...g,[sel.id]:{...(g[sel.id]||{})}}; delete c[sel.id][dk(d)]; return c; });
+  const del = async d => {
+    await sbDeleteGuidance(sel.id, dk(d));
   };
-  const addClient = () => {
+  const addClient = async () => {
     if (!newC.name.trim()) return;
     const avatars=["🌺","🦋","🌙","🔥","💫","🍀"]; const colors=["#60A5FA","#A78BFA","#FB7185","#2DD4BF","#F97316","#E879F9"];
     const idx=clients.length%avatars.length;
-    setClients(c=>[...c,{ id:Date.now(), name:newC.name, airline:newC.airline, since:`${today.getFullYear()}.${String(today.getMonth()+1).padStart(2,"0")}`, avatar:avatars[idx], color:colors[idx], pass:newC.pass||"1234" }]);
+    const payload = { name:newC.name, airline:newC.airline, since:`${today.getFullYear()}.${String(today.getMonth()+1).padStart(2,"0")}`, avatar:avatars[idx], color:colors[idx], pass:newC.pass||"1234" };
+    await sbAddClient(payload);
     setNewC({ name:"", airline:"", pass:"" }); setShowAdd(false);
   };
 
@@ -424,7 +477,7 @@ function AdminClients() {
         </FieldSection>
 
         <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, padding:"16px 20px 32px", background:"linear-gradient(to top,#0F172A 70%,transparent)", boxSizing:"border-box" }}>
-          <button onClick={save} style={{ width:"100%", background:"linear-gradient(135deg,#3B82F6,#8B5CF6)", border:"none", borderRadius:16, padding:16, color:"#fff", fontSize:16, fontWeight:800, cursor:"pointer" }}>保存する ✓</button>
+          <button onClick={save} disabled={saving} style={{ width:"100%", background:"linear-gradient(135deg,#3B82F6,#8B5CF6)", border:"none", borderRadius:16, padding:16, color:"#fff", fontSize:16, fontWeight:800, cursor:"pointer", opacity:saving?0.7:1 }}>{saving ? "保存中..." : "保存する ✓"}</button>
         </div>
       </div>
     );
@@ -434,21 +487,23 @@ function AdminClients() {
 
 // ── Admin: Recipes ────────────────────────────────────
 function AdminRecipes() {
-  const { recipes, setRecipes } = useContext(StoreContext);
+  const { recipes, sbSaveRecipe, sbDeleteRecipe } = useContext(StoreContext);
   const [editing, setEditing] = useState(null);
   const [showNew, setShowNew] = useState(false);
+  const [saving, setSaving] = useState(false);
   const CATS = RECIPE_CATS.filter(c=>c.id!=="all").map(c=>({ id:c.id, label:`${c.emoji} ${c.label}` }));
   const blank = { name:"", category:"before", emoji:"🍽️", photo:"", desc:"", ingredients:[""], steps:[""], protein:"", vitamins:"" };
   const [form, setForm] = useState(blank);
 
   const openEdit = r => { setForm({...r, ingredients:[...r.ingredients], steps:[...r.steps]}); setEditing(r.id); setShowNew(true); };
   const openNew = () => { setForm(blank); setEditing(null); setShowNew(true); };
-  const save = () => {
-    if (editing) setRecipes(rs=>rs.map(r=>r.id===editing?{...form,id:editing}:r));
-    else setRecipes(rs=>[...rs,{...form,id:Date.now()}]);
+  const save = async () => {
+    setSaving(true);
+    await sbSaveRecipe(editing ? { ...form, id: editing } : { ...form, id: Date.now() });
+    setSaving(false);
     setShowNew(false);
   };
-  const del = id => setRecipes(rs=>rs.filter(r=>r.id!==id));
+  const del = async id => { await sbDeleteRecipe(id); };
   const setArr = (field, idx, val) => setForm(f=>({ ...f, [field]: f[field].map((v,i)=>i===idx?val:v) }));
   const addRow = field => setForm(f=>({ ...f, [field]: [...f[field], ""] }));
 
@@ -492,7 +547,7 @@ function AdminRecipes() {
         <button onClick={()=>addRow("steps")} style={{ fontSize:12, color:"#3B82F6", background:"none", border:"none", cursor:"pointer" }}>+ 手順を追加</button>
       </div>
       <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, padding:"16px 20px 32px", background:"linear-gradient(to top,#0F172A 70%,transparent)", boxSizing:"border-box" }}>
-        <button onClick={save} style={{ width:"100%", background:"linear-gradient(135deg,#34D399,#3B82F6)", border:"none", borderRadius:16, padding:16, color:"#fff", fontSize:16, fontWeight:800, cursor:"pointer" }}>保存して反映 ✓</button>
+        <button onClick={save} disabled={saving} style={{ width:"100%", background:"linear-gradient(135deg,#34D399,#3B82F6)", border:"none", borderRadius:16, padding:16, color:"#fff", fontSize:16, fontWeight:800, cursor:"pointer", opacity:saving?0.7:1 }}>{saving?"保存中...":"保存して反映 ✓"}</button>
       </div>
     </div>
   );
@@ -525,23 +580,24 @@ function AdminRecipes() {
 
 // ── Admin: Blog ───────────────────────────────────────
 function AdminBlog() {
-  const { blogs, setBlogs } = useContext(StoreContext);
+  const { blogs, sbSaveBlog, sbDeleteBlog } = useContext(StoreContext);
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
   const today = new Date();
   const blank = { title:"", emoji:"📝", readMin:3, body:"" };
   const [form, setForm] = useState(blank);
 
-  const openEdit = b => { setForm({...b}); setEditing(b.id); setShowNew(true); };
+  const openEdit = b => { setForm({...b, body: b.body || (b.sections?.[0]?.text||"")}); setEditing(b.id); setShowNew(true); };
   const openNew = () => { setForm(blank); setEditing(null); setShowNew(true); };
-  const save = () => {
+  const save = async () => {
+    setSaving(true);
     const dateStr = `${MONTHS[today.getMonth()].slice(0,3)} ${today.getDate()} ${today.getFullYear()}`;
-    const sections = [{ type:"text", text: form.body }];
-    if (editing) setBlogs(bs=>bs.map(b=>b.id===editing?{...form,id:editing,date:dateStr,sections}:b));
-    else setBlogs(bs=>[{...form,id:Date.now(),date:dateStr,sections},...bs]);
+    await sbSaveBlog(editing ? { ...form, id: editing, date: dateStr } : { ...form, id: Date.now(), date: dateStr });
+    setSaving(false);
     setShowNew(false);
   };
-  const del = id => setBlogs(bs=>bs.filter(b=>b.id!==id));
+  const del = async id => { await sbDeleteBlog(id); };
 
   if (showNew) return (
     <div style={{ padding:"16px 20px 140px" }}>
@@ -565,7 +621,7 @@ function AdminBlog() {
           placeholder="記事の内容を入力してください..." style={{ ...inputStyle, height:180, resize:"none" }} />
       </div>
       <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)", width:"100%", maxWidth:430, padding:"16px 20px 32px", background:"linear-gradient(to top,#0F172A 70%,transparent)", boxSizing:"border-box" }}>
-        <button onClick={save} style={{ width:"100%", background:"linear-gradient(135deg,#F59E0B,#EF4444)", border:"none", borderRadius:16, padding:16, color:"#fff", fontSize:16, fontWeight:800, cursor:"pointer" }}>公開する ✓</button>
+        <button onClick={save} disabled={saving} style={{ width:"100%", background:"linear-gradient(135deg,#F59E0B,#EF4444)", border:"none", borderRadius:16, padding:16, color:"#fff", fontSize:16, fontWeight:800, cursor:"pointer", opacity:saving?0.7:1 }}>{saving?"保存中...":"公開する ✓"}</button>
       </div>
     </div>
   );
