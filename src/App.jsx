@@ -639,12 +639,12 @@ function AdminBlog() {
               <span style={{ fontSize:28, flexShrink:0 }}>{b.emoji}</span>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:14, fontWeight:700, marginBottom:2 }}>{b.title}</div>
-                <div style={{ fontSize:11, color:"#64748B" }}>{b.date} · {b.readMin} min</div>
+                <div style={{ fontSize:11, color:"#64748B" }}>{b.date} · {b.readMin || b.read_min || 3} min</div>
               </div>
               <button onClick={()=>openEdit(b)} style={{ background:"#334155", border:"none", color:"#94A3B8", borderRadius:8, padding:"4px 10px", cursor:"pointer", fontSize:12, flexShrink:0 }}>編集</button>
               <button onClick={()=>del(b.id)} style={{ background:"none", border:"none", color:"#EF4444", cursor:"pointer", fontSize:18 }}>×</button>
             </div>
-            <div style={{ fontSize:12, color:"#475569", lineHeight:1.5 }}>{b.body.slice(0,60)}...</div>
+            <div style={{ fontSize:12, color:"#475569", lineHeight:1.5 }}>{(b.body||b.sections?.[0]?.text||"").slice(0,60)}...</div>
           </div>
         ))}
       </div>
@@ -1007,7 +1007,7 @@ function ClientBlog() {
       <div style={{ padding:"16px 20px 48px" }}>
         <button onClick={()=>setSel(null)} style={{ ...backBtnStyle, marginBottom:20 }}>‹</button>
         <div style={{ fontSize:52, textAlign:"center", marginBottom:12 }}>{sel.emoji}</div>
-        <div style={{ fontSize:11, color:"#64748B", textAlign:"center", marginBottom:8 }}>{sel.date} · {sel.readMin} min read</div>
+        <div style={{ fontSize:11, color:"#64748B", textAlign:"center", marginBottom:8 }}>{sel.date} · {sel.readMin || sel.read_min || 3} min read</div>
         <h2 style={{ fontSize:18, fontWeight:900, lineHeight:1.4, marginBottom:24, textAlign:"center" }}>{sel.title}</h2>
         <div style={{ borderTop:"1px solid #1E293B", paddingTop:20 }}>
           {sections.map((s, i) => <BlogSection key={i} section={s} />)}
@@ -1026,7 +1026,7 @@ function ClientBlog() {
               <div style={{ fontSize:11, color:"#60A5FA", fontWeight:700, letterSpacing:1, marginBottom:8 }}>✨ 最新記事</div>
               <div style={{ fontSize:36, marginBottom:8 }}>{b.emoji}</div>
               <div style={{ fontSize:15, fontWeight:800, lineHeight:1.4, marginBottom:6 }}>{b.title}</div>
-              <div style={{ fontSize:12, color:"#64748B" }}>{b.date} · {b.readMin} min read</div>
+              <div style={{ fontSize:12, color:"#64748B" }}>{b.date} · {b.readMin || b.read_min || 3} min read</div>
             </div>
           )}
           {idx !== 0 && (
@@ -1034,7 +1034,7 @@ function ClientBlog() {
               <div style={{ fontSize:32 }}>{b.emoji}</div>
               <div>
                 <div style={{ fontSize:14, fontWeight:700, marginBottom:4, lineHeight:1.4 }}>{b.title}</div>
-                <div style={{ fontSize:12, color:"#64748B" }}>{b.date} · {b.readMin} min</div>
+                <div style={{ fontSize:12, color:"#64748B" }}>{b.date} · {b.readMin || b.read_min || 3} min</div>
               </div>
             </div>
           )}
