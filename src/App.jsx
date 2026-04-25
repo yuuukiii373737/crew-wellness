@@ -133,7 +133,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Load data from Supabase on mount
+  // Load base data from Supabase on mount
   useEffect(() => {
     async function loadAll() {
       try {
@@ -148,15 +148,45 @@ export default function App() {
     loadAll();
   }, []);
 
-  // Load guidance when client logs in
+  // Load guidance when user logs in
   useEffect(() => {
-    if (!user || user.role !== "client") return;
-    fetchGuidance(user.client.id).then(rows => {
+    if (!user) return;
+    if (user.role === "client") {
+      // Load this client's guidance
+      loadClientGuidance(user.client.id);
+    } else if (user.role === "admin") {
+      // Load ALL clients' guidance for admin
+      loadAllGuidance();
+    }
+  }, [user]);
+
+  // Poll for updates every 10 seconds when logged in
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      if (user.role === "client") loadClientGuidance(user.client.id);
+      else if (user.role === "admin") loadAllGuidance();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  const loadClientGuidance = async (clientId) => {
+    const rows = await fetchGuidance(clientId);
+    const map = {};
+    rows.forEach(r => { map[r.date_key] = r; });
+    setGuidance(g => ({ ...g, [clientId]: map }));
+  };
+
+  const loadAllGuidance = async () => {
+    const cls = await fetchClients();
+    if (cls.length > 0) setClients(cls);
+    for (const c of cls) {
+      const rows = await fetchGuidance(c.id);
       const map = {};
       rows.forEach(r => { map[r.date_key] = r; });
-      setGuidance(g => ({ ...g, [user.client.id]: map }));
-    });
-  }, [user]);
+      setGuidance(g => ({ ...g, [c.id]: map }));
+    }
+  };
 
   if (loading) return (
     <div style={{ fontFamily:"'Helvetica Neue',Arial,sans-serif", background:"#0F172A", minHeight:"100vh", color:"#F1F5F9", maxWidth:430, margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:16 }}>
@@ -170,7 +200,13 @@ export default function App() {
     sbAddClient: async (c) => { const r = await addClient(c); if(r) setClients(prev => [...prev, r]); return r; },
     sbSaveGuidance: async (clientId, dateKey, fields) => {
       await upsertGuidance(clientId, dateKey, fields);
+      // Immediately update local state
       setGuidance(g => ({ ...g, [clientId]: { ...(g[clientId]||{}), [dateKey]: { ...fields, client_id: clientId, date_key: dateKey } } }));
+      // Also reload from DB to ensure consistency
+      const rows = await fetchGuidance(clientId);
+      const map = {};
+      rows.forEach(r => { map[r.date_key] = r; });
+      setGuidance(g => ({ ...g, [clientId]: map }));
     },
     sbDeleteGuidance: async (clientId, dateKey) => {
       await deleteGuidance(clientId, dateKey);
@@ -180,6 +216,8 @@ export default function App() {
     sbDeleteRecipe: async (id) => { await deleteRecipe(id); setRecipes(prev=>prev.filter(r=>r.id!==id)); },
     sbSaveBlog: async (blog) => { const r = await upsertBlog(blog); if(r) { setBlogs(prev => prev.some(x=>x.id===r.id) ? prev.map(x=>x.id===r.id?{...r,readMin:r.read_min,sections:[{type:"text",text:r.body||""}]}:x) : [{...r,readMin:r.read_min,sections:[{type:"text",text:r.body||""}]},...prev]); } return r; },
     sbDeleteBlog: async (id) => { await deleteBlog(id); setBlogs(prev=>prev.filter(b=>b.id!==id)); },
+    // Manual refresh
+    refreshGuidance: (clientId) => loadClientGuidance(clientId),
   };
 
   return (
@@ -325,8 +363,7 @@ function AdminClients() {
     await sbSaveGuidance(sel.id, dk(selDay), { roster:editData.roster, sleep:editData.sleep, meal:editData.meal, meal2:editData.meal2, supplement:editData.supplement, notes:editData.notes });
     setSaving(false);
     setScreen("calendar");
-  };
-  const del = async d => {
+  };  const del = async d => {
     await sbDeleteGuidance(sel.id, dk(d));
   };
   const addClient = async () => {
@@ -421,6 +458,7 @@ function AdminClients() {
 
   if (screen === "edit") {
     const recipeNames = recipes.map(r=>r.name);
+    const clientFlight = cG[dk(selDay)];
     return (
       <div style={{ padding:"0 20px 140px" }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"16px 0" }}>
@@ -434,17 +472,41 @@ function AdminClients() {
           <button onClick={()=>{ del(selDay); setScreen("calendar"); }} style={{ background:"none", border:"none", color:"#EF4444", fontSize:13, cursor:"pointer" }}>削除</button>
         </div>
 
-        <FieldSection label="✈️ ロスター" color="#60A5FA">
-          <input value={editData.roster||""} onChange={e=>setEditData(d=>({...d,roster:e.target.value.toUpperCase()}))} placeholder="TYO, AUH, OFF, SL..." style={inputStyle} />
-          <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap" }}>
-            {["OFF","SL","TYO","AUH","CDG","LHR","ISB","MAD"].map(code=>(
-              <button key={code} onClick={()=>setEditData(d=>({...d,roster:code}))}
-                style={{ background:editData.roster===code?routeColor(code):"#0F172A", border:`1px solid ${routeColor(code)||"#334155"}`, color:editData.roster===code?"#fff":"#94A3B8", borderRadius:20, padding:"4px 12px", fontSize:12, cursor:"pointer" }}>
-                {code}
-              </button>
-            ))}
+        {/* Client's flight info (read only for admin) */}
+        {clientFlight?.arr && (
+          <div style={{ background:"#0F172A", borderRadius:14, padding:14, marginBottom:16 }}>
+            <div style={{ fontSize:11, color:"#60A5FA", fontWeight:700, marginBottom:8 }}>✈️ クライアントのフライト情報</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+              <span style={{ fontSize:18, fontWeight:900 }}>{clientFlight.dep||"?"}</span>
+              <span style={{ color:"#334155" }}>→</span>
+              <span style={{ fontSize:18, fontWeight:900 }}>{clientFlight.arr}</span>
+            </div>
+            <div style={{ display:"flex", gap:16 }}>
+              {clientFlight.reporting && <div style={{ fontSize:12, color:"#94A3B8" }}>レポ: <span style={{ color:"#F1F5F9" }}>{clientFlight.reporting}</span></div>}
+              {clientFlight.debriefing && <div style={{ fontSize:12, color:"#94A3B8" }}>デブリ: <span style={{ color:"#F1F5F9" }}>{clientFlight.debriefing}</span></div>}
+            </div>
+            {clientFlight.dep2 && (
+              <div style={{ marginTop:8, paddingTop:8, borderTop:"1px solid #1E293B" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontSize:11, color:"#8B5CF6" }}>折り返し:</span>
+                  <span style={{ fontSize:16, fontWeight:900 }}>{clientFlight.dep2}</span>
+                  <span style={{ color:"#334155" }}>→</span>
+                  <span style={{ fontSize:16, fontWeight:900 }}>{clientFlight.arr2}</span>
+                </div>
+              </div>
+            )}
           </div>
-        </FieldSection>
+        )}
+        {clientFlight?.roster==="OFF" && (
+          <div style={{ background:"#F59E0B22", border:"1px solid #F59E0B", borderRadius:14, padding:14, marginBottom:16 }}>
+            <div style={{ color:"#F59E0B", fontWeight:800 }}>😴 この日はOFF DAY</div>
+          </div>
+        )}
+        {clientFlight?.roster==="SL" && (
+          <div style={{ background:"#8B5CF622", border:"1px solid #8B5CF6", borderRadius:14, padding:14, marginBottom:16 }}>
+            <div style={{ color:"#8B5CF6", fontWeight:800 }}>🏥 この日はSICK LEAVE</div>
+          </div>
+        )}
 
         <FieldSection label="🌙 睡眠指導" color="#818CF8">
           <textarea value={editData.sleep||""} onChange={e=>setEditData(d=>({...d,sleep:e.target.value}))}
