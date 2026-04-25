@@ -711,8 +711,8 @@ function ClientCalendar({ client }) {
   const [showFlightInput, setShowFlightInput] = useState(false);
   const [saving, setSaving] = useState(false);
   const [flightData, setFlightData] = useState({
-    roster: "", dep: "", arr: "", reporting: "", debriefing: "",
-    dep2: "", arr2: "", reporting2: "", debriefing2: "", isReturn: false
+    roster: "", dep: "", arr: "", arr_date: "", reporting: "", debriefing: "",
+    dep2: "", arr2: "", dep_date2: "", arr_date2: "", reporting2: "", debriefing2: "", isReturn: false
   });
 
   const dk = d => `${year}-${month}-${d}`;
@@ -721,12 +721,27 @@ function ClientCalendar({ client }) {
   const dayG = selDay ? cG[dk(selDay)] : null;
   const recipeObj = name => recipes.find(r=>r.name===name);
 
+  // Generate date options for arrival (selDay to selDay+5)
+  const getDateOptions = (baseDay) => {
+    const options = [];
+    for (let i = 0; i <= 5; i++) {
+      const d = new Date(year, month, (baseDay||1) + i);
+      options.push({
+        value: `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`,
+        label: `${MONTHS[d.getMonth()].slice(0,3)} ${d.getDate()}日`
+      });
+    }
+    return options;
+  };
+
   const openFlightInput = () => {
     const g = dayG || {};
     setFlightData({
       roster: g.roster||"", dep: g.dep||"", arr: g.arr||"",
+      arr_date: g.arr_date||"",
       reporting: g.reporting||"", debriefing: g.debriefing||"",
       dep2: g.dep2||"", arr2: g.arr2||"",
+      dep_date2: g.dep_date2||"", arr_date2: g.arr_date2||"",
       reporting2: g.reporting2||"", debriefing2: g.debriefing2||"",
       isReturn: !!(g.dep2||g.arr2)
     });
@@ -743,10 +758,13 @@ function ClientCalendar({ client }) {
       roster,
       dep: flightData.dep.toUpperCase(),
       arr: flightData.arr.toUpperCase(),
+      arr_date: flightData.arr_date,
       reporting: flightData.reporting,
       debriefing: flightData.debriefing,
       dep2: flightData.isReturn ? flightData.dep2.toUpperCase() : "",
       arr2: flightData.isReturn ? flightData.arr2.toUpperCase() : "",
+      dep_date2: flightData.isReturn ? flightData.dep_date2 : "",
+      arr_date2: flightData.isReturn ? flightData.arr_date2 : "",
       reporting2: flightData.isReturn ? flightData.reporting2 : "",
       debriefing2: flightData.isReturn ? flightData.debriefing2 : "",
     });
@@ -755,6 +773,13 @@ function ClientCalendar({ client }) {
   };
 
   const POPULAR_AIRPORTS = ["AUH","DXB","TYO","NRT","HND","CDG","LHR","ISB","MAD","SIN","BKK","SYD"];
+
+  // Format date string for display
+  const fmtDate = (dateStr) => {
+    if (!dateStr) return "";
+    const [y,m,d] = dateStr.split("-");
+    return `${MONTHS[parseInt(m)-1]?.slice(0,3)} ${d}日`;
+  };
 
   return (
     <div style={{ padding:"16px 20px" }}>
@@ -773,20 +798,20 @@ function ClientCalendar({ client }) {
             {/* Flight 1 */}
             <div style={{ background:"#0F172A", borderRadius:16, padding:16, marginBottom:14 }}>
               <div style={{ fontSize:12, color:"#60A5FA", fontWeight:700, marginBottom:12 }}>✈️ フライト 1</div>
-              
+
               {/* Route */}
               <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:12 }}>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>出発地</div>
                   <input value={flightData.dep} onChange={e=>setFlightData(d=>({...d,dep:e.target.value.toUpperCase()}))}
-                    placeholder="例: AUH" maxLength={3}
+                    placeholder="AUH" maxLength={3}
                     style={{ ...inputStyle, textAlign:"center", fontSize:18, fontWeight:800, letterSpacing:2 }} />
                 </div>
                 <div style={{ fontSize:20, color:"#334155", paddingTop:20 }}>→</div>
                 <div style={{ flex:1 }}>
                   <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>到着地</div>
                   <input value={flightData.arr} onChange={e=>setFlightData(d=>({...d,arr:e.target.value.toUpperCase()}))}
-                    placeholder="例: TYO" maxLength={3}
+                    placeholder="NRT" maxLength={3}
                     style={{ ...inputStyle, textAlign:"center", fontSize:18, fontWeight:800, letterSpacing:2 }} />
                 </div>
               </div>
@@ -801,15 +826,33 @@ function ClientCalendar({ client }) {
                 ))}
               </div>
 
+              {/* Dates */}
+              <div style={{ display:"flex", gap:10, marginBottom:12 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>📅 出発日</div>
+                  <div style={{ ...inputStyle, color:"#F1F5F9", fontSize:14 }}>{MONTHS[month].slice(0,3)} {selDay}日</div>
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>📅 到着日</div>
+                  <select value={flightData.arr_date} onChange={e=>setFlightData(d=>({...d,arr_date:e.target.value}))}
+                    style={{ ...inputStyle, appearance:"none" }}>
+                    <option value="">同日</option>
+                    {getDateOptions(selDay).map(opt=>(
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               {/* Times */}
               <div style={{ display:"flex", gap:10 }}>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 レポーティング（現地時刻）</div>
+                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 レポーティング（現地）</div>
                   <input type="time" value={flightData.reporting} onChange={e=>setFlightData(d=>({...d,reporting:e.target.value}))}
                     style={{ ...inputStyle, colorScheme:"dark" }} />
                 </div>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 デブリーフィング（現地時刻）</div>
+                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 デブリーフィング（現地）</div>
                   <input type="time" value={flightData.debriefing} onChange={e=>setFlightData(d=>({...d,debriefing:e.target.value}))}
                     style={{ ...inputStyle, colorScheme:"dark" }} />
                 </div>
@@ -830,25 +873,60 @@ function ClientCalendar({ client }) {
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>出発地</div>
                     <input value={flightData.dep2} onChange={e=>setFlightData(d=>({...d,dep2:e.target.value.toUpperCase()}))}
-                      placeholder="例: TYO" maxLength={3}
+                      placeholder="NRT" maxLength={3}
                       style={{ ...inputStyle, textAlign:"center", fontSize:18, fontWeight:800, letterSpacing:2 }} />
                   </div>
                   <div style={{ fontSize:20, color:"#334155", paddingTop:20 }}>→</div>
                   <div style={{ flex:1 }}>
                     <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>到着地</div>
                     <input value={flightData.arr2} onChange={e=>setFlightData(d=>({...d,arr2:e.target.value.toUpperCase()}))}
-                      placeholder="例: AUH" maxLength={3}
+                      placeholder="AUH" maxLength={3}
                       style={{ ...inputStyle, textAlign:"center", fontSize:18, fontWeight:800, letterSpacing:2 }} />
                   </div>
                 </div>
+
+                {/* Quick airport select for flight 2 */}
+                <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+                  {POPULAR_AIRPORTS.map(code=>(
+                    <button key={code} onClick={()=>{ if(!flightData.dep2) setFlightData(d=>({...d,dep2:code})); else setFlightData(d=>({...d,arr2:code})); }}
+                      style={{ background:"#1E293B", border:"1px solid #334155", color:"#94A3B8", borderRadius:20, padding:"3px 10px", fontSize:11, cursor:"pointer" }}>
+                      {code}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Dates for flight 2 */}
+                <div style={{ display:"flex", gap:10, marginBottom:12 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>📅 出発日</div>
+                    <select value={flightData.dep_date2} onChange={e=>setFlightData(d=>({...d,dep_date2:e.target.value}))}
+                      style={{ ...inputStyle, appearance:"none" }}>
+                      <option value="">選択</option>
+                      {getDateOptions(selDay).map(opt=>(
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>📅 到着日</div>
+                    <select value={flightData.arr_date2} onChange={e=>setFlightData(d=>({...d,arr_date2:e.target.value}))}
+                      style={{ ...inputStyle, appearance:"none" }}>
+                      <option value="">選択</option>
+                      {getDateOptions(selDay).map(opt=>(
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div style={{ display:"flex", gap:10 }}>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 レポーティング（現地時刻）</div>
+                    <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 レポーティング（現地）</div>
                     <input type="time" value={flightData.reporting2} onChange={e=>setFlightData(d=>({...d,reporting2:e.target.value}))}
                       style={{ ...inputStyle, colorScheme:"dark" }} />
                   </div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 デブリーフィング（現地時刻）</div>
+                    <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 デブリーフィング（現地）</div>
                     <input type="time" value={flightData.debriefing2} onChange={e=>setFlightData(d=>({...d,debriefing2:e.target.value}))}
                       style={{ ...inputStyle, colorScheme:"dark" }} />
                   </div>
@@ -856,7 +934,7 @@ function ClientCalendar({ client }) {
               </div>
             )}
 
-            {/* OFF / SL quick buttons */}
+            {/* OFF / SL */}
             <div style={{ marginBottom:16 }}>
               <div style={{ fontSize:11, color:"#64748B", marginBottom:8 }}>フライトなしの日</div>
               <div style={{ display:"flex", gap:10 }}>
@@ -864,9 +942,9 @@ function ClientCalendar({ client }) {
                   <button key={code} onClick={async()=>{
                     setSaving(true);
                     const existing = cG[dk(selDay)] || {};
-                    await sbSaveGuidance(client.id, dk(selDay), { ...existing, roster:code, dep:"", arr:"", reporting:"", debriefing:"", dep2:"", arr2:"", reporting2:"", debriefing2:"" });
+                    await sbSaveGuidance(client.id, dk(selDay), { ...existing, roster:code, dep:"", arr:"", arr_date:"", reporting:"", debriefing:"", dep2:"", arr2:"", dep_date2:"", arr_date2:"", reporting2:"", debriefing2:"" });
                     setSaving(false); setShowFlightInput(false);
-                  }} style={{ flex:1, background: code==="OFF"?"#F59E0B22":"#8B5CF622", border:`1px solid ${code==="OFF"?"#F59E0B":"#8B5CF6"}`, color:code==="OFF"?"#F59E0B":"#8B5CF6", borderRadius:12, padding:12, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                  }} style={{ flex:1, background:code==="OFF"?"#F59E0B22":"#8B5CF622", border:`1px solid ${code==="OFF"?"#F59E0B":"#8B5CF6"}`, color:code==="OFF"?"#F59E0B":"#8B5CF6", borderRadius:12, padding:12, fontSize:14, fontWeight:700, cursor:"pointer" }}>
                     {code==="OFF"?"😴 OFF":"🏥 SL（病欠）"}
                   </button>
                 ))}
@@ -954,11 +1032,12 @@ function ClientCalendar({ client }) {
               {dayG?.arr && dayG?.arr !== "OFF" && dayG?.arr !== "SL" && (
                 <>
                   <div style={{ fontSize:11, color:"#60A5FA", fontWeight:700, marginBottom:8 }}>✈️ フライト 1</div>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
                     <span style={{ fontSize:20, fontWeight:900, color:"#F1F5F9" }}>{dayG.dep||"?"}</span>
                     <span style={{ color:"#334155" }}>→</span>
                     <span style={{ fontSize:20, fontWeight:900, color:"#F1F5F9" }}>{dayG.arr}</span>
                   </div>
+                  {dayG.arr_date && <div style={{ fontSize:12, color:"#60A5FA", marginBottom:6 }}>📅 到着日: {fmtDate(dayG.arr_date)}</div>}
                   <div style={{ display:"flex", gap:16 }}>
                     {dayG.reporting && <div style={{ fontSize:12, color:"#94A3B8" }}>🕐 レポ: <span style={{ color:"#F1F5F9", fontWeight:600 }}>{dayG.reporting}</span></div>}
                     {dayG.debriefing && <div style={{ fontSize:12, color:"#94A3B8" }}>🕐 デブリ: <span style={{ color:"#F1F5F9", fontWeight:600 }}>{dayG.debriefing}</span></div>}
@@ -967,11 +1046,13 @@ function ClientCalendar({ client }) {
                     <>
                       <div style={{ borderTop:"1px solid #1E293B", margin:"10px 0" }} />
                       <div style={{ fontSize:11, color:"#8B5CF6", fontWeight:700, marginBottom:8 }}>✈️ フライト 2（折り返し）</div>
-                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                      {dayG.dep_date2 && <div style={{ fontSize:12, color:"#8B5CF6", marginBottom:6 }}>📅 出発日: {fmtDate(dayG.dep_date2)}</div>}
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
                         <span style={{ fontSize:20, fontWeight:900, color:"#F1F5F9" }}>{dayG.dep2}</span>
                         <span style={{ color:"#334155" }}>→</span>
                         <span style={{ fontSize:20, fontWeight:900, color:"#F1F5F9" }}>{dayG.arr2}</span>
                       </div>
+                      {dayG.arr_date2 && <div style={{ fontSize:12, color:"#8B5CF6", marginBottom:6 }}>📅 到着日: {fmtDate(dayG.arr_date2)}</div>}
                       <div style={{ display:"flex", gap:16 }}>
                         {dayG.reporting2 && <div style={{ fontSize:12, color:"#94A3B8" }}>🕐 レポ: <span style={{ color:"#F1F5F9", fontWeight:600 }}>{dayG.reporting2}</span></div>}
                         {dayG.debriefing2 && <div style={{ fontSize:12, color:"#94A3B8" }}>🕐 デブリ: <span style={{ color:"#F1F5F9", fontWeight:600 }}>{dayG.debriefing2}</span></div>}
