@@ -407,8 +407,10 @@ function AdminClients() {
               <div key={d} onClick={()=>openEdit(d)}
                 style={{ borderRadius:10, padding:"6px 2px", textAlign:"center", cursor:"pointer", background:color?`${color}20`:"#1E293B", border:isToday?"2px solid #3B82F6":"2px solid transparent" }}>
                 <div style={{ fontSize:11, fontWeight:700, color:isToday?"#60A5FA":"#94A3B8" }}>{d}</div>
-                {g?.roster && <div style={{ fontSize:9, fontWeight:800, color }}>{g.roster}</div>}
-                {g&&!g.roster && <div style={{ width:5, height:5, borderRadius:"50%", background:"#34D399", margin:"2px auto 0" }}/>}
+                {g?.arr && g.arr!=="OFF" && g.arr!=="SL" && <div style={{ fontSize:8, fontWeight:800, color, lineHeight:1.2 }}>{g.arr}</div>}
+                {g?.roster==="OFF" && <div style={{ fontSize:8, fontWeight:800, color:"#F59E0B" }}>OFF</div>}
+                {g?.roster==="SL" && <div style={{ fontSize:8, fontWeight:800, color:"#8B5CF6" }}>SL</div>}
+                {g&&!g.arr&&!g.roster && <div style={{ width:5, height:5, borderRadius:"50%", background:"#34D399", margin:"2px auto 0" }}/>}
               </div>
             );
           })}
@@ -701,22 +703,183 @@ function ClientApp() {
 }
 
 function ClientCalendar({ client }) {
-  const { today, guidance, recipes } = useContext(StoreContext);
+  const { today, guidance, recipes, sbSaveGuidance } = useContext(StoreContext);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [selDay, setSelDay] = useState(null);
   const [selRecipe, setSelRecipe] = useState(null);
+  const [showFlightInput, setShowFlightInput] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [flightData, setFlightData] = useState({
+    roster: "", dep: "", arr: "", reporting: "", debriefing: "",
+    dep2: "", arr2: "", reporting2: "", debriefing2: "", isReturn: false
+  });
 
   const dk = d => `${year}-${month}-${d}`;
   const cG = guidance[client.id] || {};
   const daysInMonth=getDaysInMonth(year,month); const firstDay=getFirstDay(year,month);
-
   const dayG = selDay ? cG[dk(selDay)] : null;
   const recipeObj = name => recipes.find(r=>r.name===name);
 
+  const openFlightInput = () => {
+    const g = dayG || {};
+    setFlightData({
+      roster: g.roster||"", dep: g.dep||"", arr: g.arr||"",
+      reporting: g.reporting||"", debriefing: g.debriefing||"",
+      dep2: g.dep2||"", arr2: g.arr2||"",
+      reporting2: g.reporting2||"", debriefing2: g.debriefing2||"",
+      isReturn: !!(g.dep2||g.arr2)
+    });
+    setShowFlightInput(true);
+  };
+
+  const saveFlight = async () => {
+    if (!selDay) return;
+    setSaving(true);
+    const existing = cG[dk(selDay)] || {};
+    const roster = flightData.arr || flightData.roster || "FLT";
+    await sbSaveGuidance(client.id, dk(selDay), {
+      ...existing,
+      roster,
+      dep: flightData.dep.toUpperCase(),
+      arr: flightData.arr.toUpperCase(),
+      reporting: flightData.reporting,
+      debriefing: flightData.debriefing,
+      dep2: flightData.isReturn ? flightData.dep2.toUpperCase() : "",
+      arr2: flightData.isReturn ? flightData.arr2.toUpperCase() : "",
+      reporting2: flightData.isReturn ? flightData.reporting2 : "",
+      debriefing2: flightData.isReturn ? flightData.debriefing2 : "",
+    });
+    setSaving(false);
+    setShowFlightInput(false);
+  };
+
+  const POPULAR_AIRPORTS = ["AUH","DXB","TYO","NRT","HND","CDG","LHR","ISB","MAD","SIN","BKK","SYD"];
+
   return (
     <div style={{ padding:"16px 20px" }}>
-      {/* Recipe modal */}
+      {/* Flight input modal */}
+      {showFlightInput && (
+        <div style={{ ...overlayStyle, alignItems:"flex-end" }}>
+          <div style={{ ...modalStyle, borderRadius:"24px 24px 0 0", maxHeight:"90vh", overflowY:"auto", paddingBottom:32 }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+              <div>
+                <div style={{ fontSize:11, color:"#64748B" }}>{MONTHS[month]} {selDay}日</div>
+                <div style={{ fontSize:18, fontWeight:800 }}>フライト情報を入力</div>
+              </div>
+              <button onClick={()=>setShowFlightInput(false)} style={{ background:"#334155", border:"none", color:"#94A3B8", borderRadius:"50%", width:32, height:32, cursor:"pointer", fontSize:16 }}>×</button>
+            </div>
+
+            {/* Flight 1 */}
+            <div style={{ background:"#0F172A", borderRadius:16, padding:16, marginBottom:14 }}>
+              <div style={{ fontSize:12, color:"#60A5FA", fontWeight:700, marginBottom:12 }}>✈️ フライト 1</div>
+              
+              {/* Route */}
+              <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:12 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>出発地</div>
+                  <input value={flightData.dep} onChange={e=>setFlightData(d=>({...d,dep:e.target.value.toUpperCase()}))}
+                    placeholder="例: AUH" maxLength={3}
+                    style={{ ...inputStyle, textAlign:"center", fontSize:18, fontWeight:800, letterSpacing:2 }} />
+                </div>
+                <div style={{ fontSize:20, color:"#334155", paddingTop:20 }}>→</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>到着地</div>
+                  <input value={flightData.arr} onChange={e=>setFlightData(d=>({...d,arr:e.target.value.toUpperCase()}))}
+                    placeholder="例: TYO" maxLength={3}
+                    style={{ ...inputStyle, textAlign:"center", fontSize:18, fontWeight:800, letterSpacing:2 }} />
+                </div>
+              </div>
+
+              {/* Quick airport select */}
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:12 }}>
+                {POPULAR_AIRPORTS.map(code=>(
+                  <button key={code} onClick={()=>{ if(!flightData.dep) setFlightData(d=>({...d,dep:code})); else setFlightData(d=>({...d,arr:code})); }}
+                    style={{ background:"#1E293B", border:"1px solid #334155", color:"#94A3B8", borderRadius:20, padding:"3px 10px", fontSize:11, cursor:"pointer" }}>
+                    {code}
+                  </button>
+                ))}
+              </div>
+
+              {/* Times */}
+              <div style={{ display:"flex", gap:10 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 レポーティング（現地時刻）</div>
+                  <input type="time" value={flightData.reporting} onChange={e=>setFlightData(d=>({...d,reporting:e.target.value}))}
+                    style={{ ...inputStyle, colorScheme:"dark" }} />
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 デブリーフィング（現地時刻）</div>
+                  <input type="time" value={flightData.debriefing} onChange={e=>setFlightData(d=>({...d,debriefing:e.target.value}))}
+                    style={{ ...inputStyle, colorScheme:"dark" }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Return flight toggle */}
+            <button onClick={()=>setFlightData(d=>({...d,isReturn:!d.isReturn}))}
+              style={{ width:"100%", background:flightData.isReturn?"#1E3A5F":"#1E293B", border:`1px solid ${flightData.isReturn?"#3B82F6":"#334155"}`, borderRadius:12, padding:"10px", color:flightData.isReturn?"#60A5FA":"#64748B", fontSize:13, cursor:"pointer", marginBottom:14, fontWeight:flightData.isReturn?700:400 }}>
+              {flightData.isReturn ? "✓ 折り返しフライトあり" : "+ 折り返しフライトを追加"}
+            </button>
+
+            {/* Flight 2 */}
+            {flightData.isReturn && (
+              <div style={{ background:"#0F172A", borderRadius:16, padding:16, marginBottom:14 }}>
+                <div style={{ fontSize:12, color:"#8B5CF6", fontWeight:700, marginBottom:12 }}>✈️ フライト 2（折り返し）</div>
+                <div style={{ display:"flex", gap:10, alignItems:"center", marginBottom:12 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>出発地</div>
+                    <input value={flightData.dep2} onChange={e=>setFlightData(d=>({...d,dep2:e.target.value.toUpperCase()}))}
+                      placeholder="例: TYO" maxLength={3}
+                      style={{ ...inputStyle, textAlign:"center", fontSize:18, fontWeight:800, letterSpacing:2 }} />
+                  </div>
+                  <div style={{ fontSize:20, color:"#334155", paddingTop:20 }}>→</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>到着地</div>
+                    <input value={flightData.arr2} onChange={e=>setFlightData(d=>({...d,arr2:e.target.value.toUpperCase()}))}
+                      placeholder="例: AUH" maxLength={3}
+                      style={{ ...inputStyle, textAlign:"center", fontSize:18, fontWeight:800, letterSpacing:2 }} />
+                  </div>
+                </div>
+                <div style={{ display:"flex", gap:10 }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 レポーティング（現地時刻）</div>
+                    <input type="time" value={flightData.reporting2} onChange={e=>setFlightData(d=>({...d,reporting2:e.target.value}))}
+                      style={{ ...inputStyle, colorScheme:"dark" }} />
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:11, color:"#64748B", marginBottom:4 }}>🕐 デブリーフィング（現地時刻）</div>
+                    <input type="time" value={flightData.debriefing2} onChange={e=>setFlightData(d=>({...d,debriefing2:e.target.value}))}
+                      style={{ ...inputStyle, colorScheme:"dark" }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* OFF / SL quick buttons */}
+            <div style={{ marginBottom:16 }}>
+              <div style={{ fontSize:11, color:"#64748B", marginBottom:8 }}>フライトなしの日</div>
+              <div style={{ display:"flex", gap:10 }}>
+                {["OFF","SL"].map(code=>(
+                  <button key={code} onClick={async()=>{
+                    setSaving(true);
+                    const existing = cG[dk(selDay)] || {};
+                    await sbSaveGuidance(client.id, dk(selDay), { ...existing, roster:code, dep:"", arr:"", reporting:"", debriefing:"", dep2:"", arr2:"", reporting2:"", debriefing2:"" });
+                    setSaving(false); setShowFlightInput(false);
+                  }} style={{ flex:1, background: code==="OFF"?"#F59E0B22":"#8B5CF622", border:`1px solid ${code==="OFF"?"#F59E0B":"#8B5CF6"}`, color:code==="OFF"?"#F59E0B":"#8B5CF6", borderRadius:12, padding:12, fontSize:14, fontWeight:700, cursor:"pointer" }}>
+                    {code==="OFF"?"😴 OFF":"🏥 SL（病欠）"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button onClick={saveFlight} disabled={saving}
+              style={{ width:"100%", background:"linear-gradient(135deg,#3B82F6,#8B5CF6)", border:"none", borderRadius:16, padding:16, color:"#fff", fontSize:16, fontWeight:800, cursor:"pointer", opacity:saving?0.7:1 }}>
+              {saving ? "保存中..." : "保存する ✓"}
+            </button>
+          </div>
+        </div>
+      )}
       {selRecipe && (
         <div style={overlayStyle}>
           <div style={{ ...modalStyle, maxHeight:"80vh", overflowY:"auto" }}>
@@ -763,8 +926,10 @@ function ClientCalendar({ client }) {
             <div key={d} onClick={()=>setSelDay(d===selDay?null:d)}
               style={{ borderRadius:10, padding:"6px 2px", textAlign:"center", cursor:"pointer", background:isSel?"#1E40AF":color?`${color}20`:"#1E293B", border:isToday?"2px solid #3B82F6":"2px solid transparent" }}>
               <div style={{ fontSize:11, fontWeight:700, color:isToday?"#60A5FA":isSel?"#fff":"#94A3B8" }}>{d}</div>
-              {g?.roster && <div style={{ fontSize:9, fontWeight:800, color:isSel?"#fff":color }}>{g.roster}</div>}
-              {g&&!g.roster && <div style={{ width:5, height:5, borderRadius:"50%", background:client.color, margin:"2px auto 0" }}/>}
+              {g?.arr && g.arr!=="OFF" && g.arr!=="SL" && <div style={{ fontSize:8, fontWeight:800, color:isSel?"#fff":color, lineHeight:1.2 }}>{g.arr}</div>}
+              {g?.roster==="OFF" && <div style={{ fontSize:8, fontWeight:800, color:"#F59E0B" }}>OFF</div>}
+              {g?.roster==="SL" && <div style={{ fontSize:8, fontWeight:800, color:"#8B5CF6" }}>SL</div>}
+              {g && !g.roster && !g.arr && <div style={{ width:5, height:5, borderRadius:"50%", background:client.color, margin:"2px auto 0" }}/>}
             </div>
           );
         })}
@@ -775,10 +940,53 @@ function ClientCalendar({ client }) {
         <div style={{ background:"#1E293B", borderRadius:20, padding:20 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
             <div style={{ fontSize:16, fontWeight:800 }}>{MONTHS[month]} {selDay}日</div>
-            {dayG?.roster && <span style={{ background:routeColor(dayG.roster)+"33", color:routeColor(dayG.roster), borderRadius:20, padding:"4px 12px", fontSize:13, fontWeight:800 }}>{dayG.roster}</span>}
+            <button onClick={openFlightInput}
+              style={{ background:"#334155", border:"none", borderRadius:20, padding:"5px 14px", color:"#94A3B8", fontSize:12, cursor:"pointer" }}>
+              {dayG?.arr||dayG?.roster ? "✏️ 編集" : "+ フライト入力"}
+            </button>
           </div>
-          {!dayG ? (
-            <div style={{ color:"#475569", fontSize:14, textAlign:"center", padding:20 }}>この日の指導はまだありません</div>
+
+          {/* Flight info display */}
+          {(dayG?.dep||dayG?.arr||dayG?.roster) && (
+            <div style={{ background:"#0F172A", borderRadius:14, padding:14, marginBottom:14 }}>
+              {dayG?.roster === "OFF" && <div style={{ color:"#F59E0B", fontWeight:800, fontSize:16 }}>😴 OFF DAY</div>}
+              {dayG?.roster === "SL" && <div style={{ color:"#8B5CF6", fontWeight:800, fontSize:16 }}>🏥 SICK LEAVE</div>}
+              {dayG?.arr && dayG?.arr !== "OFF" && dayG?.arr !== "SL" && (
+                <>
+                  <div style={{ fontSize:11, color:"#60A5FA", fontWeight:700, marginBottom:8 }}>✈️ フライト 1</div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                    <span style={{ fontSize:20, fontWeight:900, color:"#F1F5F9" }}>{dayG.dep||"?"}</span>
+                    <span style={{ color:"#334155" }}>→</span>
+                    <span style={{ fontSize:20, fontWeight:900, color:"#F1F5F9" }}>{dayG.arr}</span>
+                  </div>
+                  <div style={{ display:"flex", gap:16 }}>
+                    {dayG.reporting && <div style={{ fontSize:12, color:"#94A3B8" }}>🕐 レポ: <span style={{ color:"#F1F5F9", fontWeight:600 }}>{dayG.reporting}</span></div>}
+                    {dayG.debriefing && <div style={{ fontSize:12, color:"#94A3B8" }}>🕐 デブリ: <span style={{ color:"#F1F5F9", fontWeight:600 }}>{dayG.debriefing}</span></div>}
+                  </div>
+                  {dayG.dep2 && (
+                    <>
+                      <div style={{ borderTop:"1px solid #1E293B", margin:"10px 0" }} />
+                      <div style={{ fontSize:11, color:"#8B5CF6", fontWeight:700, marginBottom:8 }}>✈️ フライト 2（折り返し）</div>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
+                        <span style={{ fontSize:20, fontWeight:900, color:"#F1F5F9" }}>{dayG.dep2}</span>
+                        <span style={{ color:"#334155" }}>→</span>
+                        <span style={{ fontSize:20, fontWeight:900, color:"#F1F5F9" }}>{dayG.arr2}</span>
+                      </div>
+                      <div style={{ display:"flex", gap:16 }}>
+                        {dayG.reporting2 && <div style={{ fontSize:12, color:"#94A3B8" }}>🕐 レポ: <span style={{ color:"#F1F5F9", fontWeight:600 }}>{dayG.reporting2}</span></div>}
+                        {dayG.debriefing2 && <div style={{ fontSize:12, color:"#94A3B8" }}>🕐 デブリ: <span style={{ color:"#F1F5F9", fontWeight:600 }}>{dayG.debriefing2}</span></div>}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {!dayG?.sleep && !dayG?.meal ? (
+            <div style={{ color:"#475569", fontSize:14, textAlign:"center", padding:"12px 0" }}>
+              {dayG?.roster ? "指導内容はまだ追加されていません" : "フライト情報を入力すると指導内容が表示されます"}
+            </div>
           ) : (
             <>
               {dayG.sleep && (
